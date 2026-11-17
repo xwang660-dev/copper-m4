@@ -270,4 +270,12 @@ export const copperTools = {
     }),
     execute: async ({ query }) => searchDocs(query),
   }),
+  hand_off_to_refund_agent: tool({
+    description:
+      "Hands the chat to the Refund agent when the customer wants a refund or money back for an order they already placed. Copper never refunds anything itself.",
+    inputSchema: z.object({
+      reason: z.string().describe("What the customer wants, in a few words."),
+    }),
+    execute: async ({ reason }) => ({ handedTo: "Refund agent", reason }),
+  }),
 };

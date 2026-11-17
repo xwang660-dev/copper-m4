@@ -139,3 +139,36 @@ second agent, and a person approving the large ones.
 |---|---|---|
 | Page | `app/support/page.tsx` | The "Refund Console" title and nothing else yet, linked from the header as Support |
 | Chat panel | `components/copper/ask-copper.tsx` | With the `docked` prop it starts open and the page beside it stays clickable. It is the same single agent and tools as on the home page |
+
+## Module 4: Refund agent
+
+**Summary:** Two agents and one person. Copper hands refund requests to a
+second agent, the Refund agent. The refund rules (the auto-refund limit and one
+refund per order) are plain code, and refunds over the limit wait for a person
+to Approve or Reject them in the Refund Console.
+
+| Piece | Where | What it does |
+|---|---|---|
+| Page | `app/support/page.tsx`, `components/copper/refund-console.tsx` | The Refund Console: change the auto-refund limit, Approve or Reject waiting refunds, see the orders and their refund status. Refreshes every 3 seconds |
+| Rules | `lib/copper/refunds/store.ts` | `requestRefund()` is the only way a refund is created: at or under the limit it is auto-approved, over it waits for a person, and an order can never be refunded twice (even after a rejection). `decideRefund()` is the person's decision, once. Sample orders and state live in server memory |
+| Server Actions | `lib/copper/refunds/actions.ts` | `getConsoleState`, `changeLimit`, `decide`, used by the console |
+| Refund agent | `lib/copper/assistant/refund-agent.ts` | Its own system prompt and three tools: `get_order`, `request_refund`, `transfer_support`. It can ask for a refund, never decide one |
+| Hand-off | `lib/copper/assistant/tools.ts`, `lib/copper/assistant/ask.ts` | Copper's `hand_off_to_refund_agent` ends Copper's turn and `askCopper()` runs the Refund agent on the same chat; the Refund agent's `transfer_support` hands it back the same way. At most 2 hand-offs per answer |
+| AI calls | `{ module: 4, feature: "refund-agent" }` | One streamed call per Refund-agent run |
+
+**Data flow:** customer asks for a refund → Copper calls
+`hand_off_to_refund_agent` → Refund agent calls `get_order`, then
+`request_refund` → the store compares the amount with the limit → auto-approved,
+or pending → a person clicks Approve or Reject in the console → the customer
+asks again and `request_refund` returns the existing refund with its decision.
+
+**Decisions and trade-offs:** The limit check is code, not a prompt, so no
+message can talk the model past it. "A supervisor already approved" in the chat
+is ignored because only tool results count and only the console can approve.
+Refunds are kept in server memory: simple for class, but they reset on restart
+and aren't shared between serverless instances. A real app would use a
+database.
+
+**Risks and open questions:** The customer only learns of a decision when they
+ask again (no push to the chat). The console has no login, so anyone who opens
+`/support` can approve. Refunds aren't sent to a payment provider.

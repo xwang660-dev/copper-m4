@@ -16,10 +16,14 @@ export type ToolStep = {
 
 export type Step = ThinkingStep | ToolStep;
 
+export type AgentName = "copper" | "refund";
+
 export type Progress = {
   steps: Step[];
   reply: string;
   status: "working" | "done" | "error";
+  /** Who holds the chat after this answer. Absent means Copper. */
+  agent?: AgentName;
 };
 
 /** Every tool call in an answer, in order. */
@@ -40,4 +44,12 @@ export const TOOL_LABELS: Record<string, string> = {
   calculate_cost: "Working out the cost",
   check_availability: "Checking stock",
   search_docs: "Searching the documents",
+  hand_off_to_refund_agent: "Handing the chat to the Refund agent",
+};
+
+/** The Refund agent's tools, labelled the same way. */
+export const REFUND_TOOL_LABELS: Record<string, string> = {
+  get_order: "Looking up the order",
+  request_refund: "Asking for the refund",
+  transfer_support: "Handing the chat back to Copper",
 };

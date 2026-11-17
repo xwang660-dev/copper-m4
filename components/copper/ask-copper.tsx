@@ -30,8 +30,10 @@ import { readLive } from "@/lib/ai/live";
 import { askCopper, type ChatMessage } from "@/lib/copper/assistant/ask";
 import { splitCitations } from "@/lib/copper/assistant/citations";
 import {
+  type AgentName,
   type Progress,
   type ToolStep,
+  REFUND_TOOL_LABELS,
   TOOL_LABELS,
 } from "@/lib/copper/assistant/progress";
 import { formatUsd, getPlans, getProducts } from "@/lib/copper/catalog";
@@ -41,6 +43,11 @@ const STARTERS = [
   "How much is Copper Home with Copper Plus, paid yearly, for 2 years?",
   "Is Copper Notes in Night Sky in stock?",
   "Is Copper Plus cheaper monthly or yearly?",
+];
+
+const REFUND_STARTERS = [
+  "I want a refund for my Copper Home, order CS-1004.",
+  "Please refund my Copper Plus monthly plan, order CS-1001.",
 ];
 
 type Turn = { question: string; progress: Progress };
@@ -60,11 +67,14 @@ export function AskCopper({
   const [useTools, setUseTools] = useState(true);
   const [chats, setChats] = useState<Chats>({ tools: [], noTools: [] });
   const [draft, setDraft] = useState("");
+  // Who holds the chat: Copper, or the Refund agent after a hand-off.
+  const [agent, setAgent] = useState<AgentName>("copper");
   const body = useRef<HTMLDivElement>(null);
 
   const key = useTools ? "tools" : "noTools";
   const turns = chats[key];
   const busy = turns.at(-1)?.progress.status === "working";
+  const refunding = useTools && agent === "refund";
 
   // Open from the header's #ask link or a page load at /#ask. Clicking the
   // link again fires no hashchange, so listen for the click too.
@@ -100,13 +110,15 @@ export function AskCopper({
       ]),
       { role: "user", content: question },
     ];
-    const setProgress = (progress: Progress) =>
+    const setProgress = (progress: Progress) => {
+      if (chat === "tools") setAgent(progress.agent ?? "copper");
       setChats((all) => ({
         ...all,
         [chat]: all[chat].map((turn, i) =>
           i === index ? { ...turn, progress } : turn,
         ),
       }));
+    };
     setChats((all) => ({
       ...all,
       [chat]: [...all[chat], { question, progress: WORKING }],
@@ -115,6 +127,8 @@ export function AskCopper({
       const { progress } = await askCopper({
         messages,
         useTools: chat === "tools",
+        // Only sent once the Refund agent holds the chat.
+        ...(chat === "tools" && agent === "refund" && { agent }),
       });
       for await (const update of readLive(progress)) setProgress(update);
     } catch {
@@ -154,10 +168,12 @@ export function AskCopper({
               </span>
               <div className="min-w-0 flex-1">
                 <SheetTitle className="text-base font-bold text-white">
-                  Ask Copper
+                  {refunding ? "Refund agent" : "Ask Copper"}
                 </SheetTitle>
                 <SheetDescription className="text-xs text-white/70">
-                  Prices, totals and stock, checked with tools.
+                  {refunding
+                    ? "Handed over by Copper. Refunds only."
+                    : "Prices, totals, stock and refunds, checked with tools."}
                 </SheetDescription>
               </div>
               <SheetClose asChild>
@@ -210,7 +226,7 @@ export function AskCopper({
                         stock. Try one of these:
                       </p>
                     )}
-                    {STARTERS.map((starter) => (
+                    {(docked ? REFUND_STARTERS : STARTERS).map((starter) => (
                       <button
                         key={starter}
                         type="button"
@@ -234,7 +250,11 @@ export function AskCopper({
                   aria-label="Your question"
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
-                  placeholder="Ask about prices or stock…"
+                  placeholder={
+                    refunding
+                      ? "Tell the Refund agent your order number…"
+                      : "Ask about prices, stock or refunds…"
+                  }
                   className="bg-background focus-visible:ring-ring h-10 flex-1 rounded-full border px-4 text-sm outline-none focus-visible:ring-2"
                 />
                 <Button
@@ -272,6 +292,9 @@ function Answer({
     steps.filter((s): s is ToolStep => s.type === "tool").map((s) => s.name),
   );
   const working = status === "working";
+  const refund = useTools && progress.agent === "refund";
+  const labels = refund ? REFUND_TOOL_LABELS : TOOL_LABELS;
+  const who = refund ? "Refund agent" : "Copper";
   let toolCount = 0;
   return (
     <div className="space-y-3">
@@ -289,11 +312,11 @@ function Answer({
           node={<WrenchIcon className="size-3" />}
           nodeClass="bg-muted-foreground"
           label={
-            useTools ? "Tools Copper can use" : "Tools given to Copper: none"
+            useTools ? `Tools ${who} can use` : "Tools given to Copper: none"
           }
         >
           <div className="flex flex-wrap gap-1.5">
-            {Object.keys(TOOL_LABELS).map((name) => (
+            {Object.keys(labels).map((name) => (
               <span
                 key={name}
                 className={cn(
@@ -376,7 +399,7 @@ function Answer({
 
       {(reply || !working) && (
         <div className="bg-card ml-2 rounded-2xl rounded-tl-sm border p-4 shadow-xs">
-          <p className="text-primary mb-1 text-xs font-bold">Copper</p>
+          <p className="text-primary mb-1 text-xs font-bold">{who}</p>
           {!useTools && (
             <div className="border-chart-3 bg-chart-3/10 mb-3 rounded-lg border p-3 text-xs">
               <p className="flex items-center gap-1.5 font-bold">
@@ -483,7 +506,9 @@ function ToolCard({ step, number }: { step: ToolStep; number: number }) {
           tool {number}
         </span>
         <span className="ml-auto text-xs text-white/80">
-          {TOOL_LABELS[step.name] ?? "Using a tool"}
+          {TOOL_LABELS[step.name] ??
+            REFUND_TOOL_LABELS[step.name] ??
+            "Using a tool"}
         </span>
       </div>
       <div className="space-y-2 px-3 py-3">
@@ -655,6 +680,56 @@ function ToolOutput({ name, output }: { name: string; output: any }) {
           </li>
         ))}
       </ol>
+    );
+  if (
+    (name === "hand_off_to_refund_agent" || name === "transfer_support") &&
+    output?.handedTo
+  )
+    return <p className="text-xs">Chat handed to {output.handedTo}.</p>;
+  if (name === "get_order")
+    return output?.notFound ? (
+      <p className="text-xs">No order {output.orderId}.</p>
+    ) : (
+      <div className="text-xs">
+        <div className="flex justify-between font-medium">
+          <span>
+            {output?.id}: {output?.item}
+          </span>
+          <span className="font-mono">{formatUsd(output?.amountUsd ?? 0)}</span>
+        </div>
+        <p className="text-muted-foreground">{output?.customer}</p>
+      </div>
+    );
+  if (name === "request_refund" && output?.outcome)
+    return (
+      <div className="space-y-1 text-xs">
+        <Pill
+          className={
+            output.outcome === "auto_approved"
+              ? "bg-accent text-white"
+              : output.outcome === "needs_human_approval"
+                ? "bg-chart-4 text-chart-5"
+                : "bg-chart-3 text-white"
+          }
+        >
+          {(
+            {
+              auto_approved: "Auto-approved",
+              needs_human_approval: "Waiting for a person",
+              duplicate: "Already requested",
+              not_found: "Order not found",
+            } as Record<string, string>
+          )[output.outcome as string] ?? output.outcome}
+        </Pill>
+        {output.request && (
+          <p className="text-muted-foreground">
+            {output.request.id} · {formatUsd(output.request.amountUsd)} ·{" "}
+            {String(output.request.status).replace("_", " ")}
+            {typeof output.limitUsd === "number" &&
+              ` · limit ${formatUsd(output.limitUsd)}`}
+          </p>
+        )}
+      </div>
     );
   // A tool without its own layout yet: show what came back as plain text.
   return (
