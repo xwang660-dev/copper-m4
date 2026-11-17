@@ -2,6 +2,11 @@
 // Studio key, which is free and needs no credit card.
 export const MODELS = [
   {
+    id: "google/gemini-3.5-flash-lite",
+    label: "Gemini 3.5 Flash-Lite (smallest, cheapest)",
+    googleId: "gemini-3.5-flash-lite",
+  },
+  {
     id: "google/gemini-2.5-flash",
     label: "Gemini 2.5 Flash (fast, shows its thinking)",
     // Google's own name for it, used when calling Google.
@@ -20,7 +25,7 @@ export type ModelId = (typeof MODELS)[number]["id"];
  * The model used when a call doesn't name one. 2.5 Flash writes a summary of
  * its thinking for every question, which Ask Copper shows students.
  */
-export const DEFAULT_MODEL: ModelId = "google/gemini-2.5-flash";
+export const DEFAULT_MODEL: ModelId = "google/gemini-3.5-flash-lite";
 
 /**
  * Turns text into a list of numbers so similar meanings can be found (Module 3).
